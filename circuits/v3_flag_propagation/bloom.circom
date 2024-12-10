@@ -1,94 +1,76 @@
+include "../../node_modules/circomlib/circuits/poseidon.circom";
 include "../../node_modules/circomlib/circuits/comparators.circom";
-include "../../node_modules/circomlib/circuits/gates.circom";
-include "../../node_modules/circomlib/circuits/mux1.circom";
+include "../../node_modules/circomlib/circuits/bitify.circom";
+include "./smtverifier.circom";
 
-// this is needed to see if a specific bit is set in the filter
-template SingleBitChecker(filterSize) {
-    signal input index; 
-    signal input bitArray[filterSize];
 
-    signal output bit; // we'll get the value of the bit at the specified index
-    
-    signal selectorBits[filterSize];    
-    signal products[filterSize]; // store intermediate products for selection
-    signal sums[filterSize]; // running sums for final bit selection
-    
-    // at each position in the filter compare current index with target index
-    for (var i = 0; i < filterSize; i++) {
-        component eq = IsEqual();
-        // 
-        eq.in[0] <== index;
-        eq.in[1] <== i;
-        selectorBits[i] <== eq.out; // this selector array will have 1 if indices match, 0 otherwise
-    
-        products[i] <== selectorBits[i] * bitArray[i]; // so we multiply it by the array bit to get desired position
+template BitArrayIntersection(n) {
+    signal input array1[n];
+    signal input array2[n];
+    signal output sum; // this will be either 0, 1 or 2.
+    signal intersection[n];
+
+    var tempSum = 0;
+
+    // make sure outputs are binary
+    for (var i = 0; i < n; i++) {
+        array1[i] * (array1[i] - 1) === 0;
+        array2[i] * (array2[i] - 1) === 0;
+
+        // compute intersection
+        intersection[i] <== array1[i] * array2[i];
+        tempSum += intersection[i];
     }
-    
-    // aggregate results
-    sums[0] <== products[0];
-    // add each subsequent product to running sum
-    for (var i = 1; i < filterSize; i++) {
-        sums[i] <== sums[i-1] + products[i];
-    }
-    // if we extract the final sum, this would be our selected bit
-    bit <== sums[filterSize-1];
+    sum <== tempSum;
 }
 
-template BloomFilterChecker(filterSize, numHashFunctions) {
-    signal input indices[numHashFunctions];
-    signal input bitArray[filterSize];
-    signal output notInSet;  // 1 if element is NOT in set, 0 if possibly in set
-
-    // we add a constraint: index must be less than filterSize
-    for (var i = 0; i < numHashFunctions; i++) {
-        component lt = LessThan(15);
-        lt.in[0] <== indices[i];
-        lt.in[1] <== filterSize;
-        lt.out === 1;  
-    } 
-
-    component bitCheckers[numHashFunctions];
-    signal bits[numHashFunctions];
-    signal isValid[numHashFunctions]; 
+template BloomFilter(n, k, depth) {
     
-    for (var i = 0; i < numHashFunctions; i++) {
-        
-        bitCheckers[i] = SingleBitChecker(filterSize);
-        bitCheckers[i].index <== indices[i];
+    signal input bitArray[n]; // this would be the bloom filter representing the utxo chainstate
+    signal input bitArray2[n]; // this would be a bloom filter with just one element (derived from the flagged masked commitment)
+    signal output notInSet; // 1 if bitArray2 is NOT a member of bitArray
 
-        // each SingleBitChecker needs access to the entire bitArray, so:
-        for (var j = 0; j < filterSize; j++) {
-            bitCheckers[i].bitArray[j] <== bitArray[j];
-        }
-        // add another constraint: bit value must be 0 or 1
-        bits[i] <== bitCheckers[i].bit;
-        //bits[i] * (bits[i] - 1) === 0;
-        isValid[i] <== bits[i] * (1 - bits[i]);
-        isValid[i] === 0;
+    // inputs for smt verification
+    signal input root;
+    signal private input siblings[depth];
+    signal private input key; // this would be the bytes32 element (masked commitment)
+    signal private input value; // this should correspond to bitArray2
+    signal private input auxKey;
+    signal private input auxValue;
+    signal private input auxIsEmpty;
+    signal private input isExclusion;
+
+    // add a constraint that the int value in SMT matches our input bitArray2
+    component bits2Value = Bits2Num(n);
+    for (var i = 0; i < n; i++) {
+        bits2Value.in[i] <== bitArray2[i];
+    }
+    bits2Value.out === value;
+
+    // first verify that bitArray2 belongs to the authorized smt 
+    component smtVerifier = SMTVerifier(depth);
+    smtVerifier.root <== root;
+    for (var i = 0; i < depth; i++) {
+        smtVerifier.siblings[i] <== siblings[i];
+    }
+    smtVerifier.key <== key;
+    smtVerifier.value <== value;
+    smtVerifier.auxKey <== auxKey;
+    smtVerifier.auxValue <== auxValue;
+    smtVerifier.auxIsEmpty <== auxIsEmpty;
+    smtVerifier.isExclusion <== isExclusion;
+
+    // then do bloom filter check
+    component intersection = BitArrayIntersection(n);
+    for (var i = 0; i < n; i++) {
+        intersection.array1[i] <== bitArray[i];
+        intersection.array2[i] <== bitArray2[i];
     }
     
-    // Combine results using AND operations
-    component andGates[numHashFunctions - 1];
-    signal intermediate[numHashFunctions - 1];
-    
-    // when using multiple hash functions
-    if (numHashFunctions > 1) {
-        // we start with first two bits and then chain AND operations for the remaining bits
+    // if intersection sum equals k, both bits were set
+    component eq = IsEqual();
+    eq.in[0] <== intersection.sum;
+    eq.in[1] <== k;
 
-        andGates[0] = AND();
-        andGates[0].a <== bits[0];
-        andGates[0].b <== bits[1];
-        intermediate[0] <== andGates[0].out;
-        
-        for (var i = 1; i < numHashFunctions - 1; i++) {
-            andGates[i] = AND();
-            andGates[i].a <== intermediate[i-1];
-            andGates[i].b <== bits[i+1];
-            intermediate[i] <== andGates[i].out;
-        }
-        
-        notInSet <== 1 - intermediate[numHashFunctions-2];
-    } else {
-        notInSet <== 1 - bits[0];
-    }
+    notInSet <== 1 - eq.out;
 }
