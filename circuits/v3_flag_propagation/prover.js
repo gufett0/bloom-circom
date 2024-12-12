@@ -1,80 +1,81 @@
-const snarkjs = require("snarkjs");
+const { SMT } = require("@zk-kit/smt");
 const { ethers } = require("ethers");
+const snarkjs = require("snarkjs");
 const fs = require("fs");
+const {toFixedHex, bits2Num, poseidonHash, padSiblings} = require("./utils")
 
 const WASM_FILE = "../artifacts/circuits/non_membership.wasm";
 const ZKEY_FILE = "../artifacts/circuits/non_membership.zkey";
 const VERIFICATION_KEY_FILE = "../artifacts/circuits/verification_key.json";
+const BLOOM_FILTER_SIZE = 16384;
+const SMT_DEPTH = 20;
 
-function calculateIndices(bytes32Element, filterSize, numHashFunctions) {
-    const indices = [];
-    const elementBuffer = Buffer.from(bytes32Element.slice(2), 'hex');
-    
-    for (let i = 0; i < numHashFunctions; i++) {
-        const counterBuffer = Buffer.from(i.toString(16).padStart(2, '0'), 'hex');
-        const combinedBuffer = Buffer.concat([elementBuffer, counterBuffer]);
-        const hash = ethers.keccak256(combinedBuffer);
-        const index = BigInt('0x' + hash.slice(-4)) % filterSize;
-        indices.push(index);
-    }
-    
-    return indices;
+
+function createTestBitArrays(n) {
+    const bitArray1 = new Array(n).fill(0);
+    [5, 7, 9, 11].forEach(index => bitArray1[index] = 1); // pretending a chainstate filter with two elements
+
+    const bitArray2 = new Array(n).fill(0);
+    [6, 9].forEach(index => bitArray2[index] = 1); // an element (at 6, 9) that is not in the chainstate filter
+    return { bitArray1, bitArray2 };
 }
 
-function createBloomFilter(elements, filterSize, numHashFunctions) {
-    const bitArray = new Array(Number(filterSize)).fill(0);
+
+async function setupSMTree(bitArray2) {
     
-    for (const element of elements) {
-        const indices = calculateIndices(element, filterSize, numHashFunctions);
-        for (const index of indices) {
-            bitArray[Number(index)] = 1;
-        }
-    }
-    return bitArray;  
-}
+    const smt = new SMT(poseidonHash, true);
 
-async function verifyFilesExist() {
-    const files = [WASM_FILE, ZKEY_FILE, VERIFICATION_KEY_FILE];
-    for (const file of files) {
-        if (!fs.existsSync(file)) {
-            throw new Error(`Required file not found: ${file}`);
-        }
-    }
-}
-
-async function generateAndVerifyProof() {
-    await verifyFilesExist();
-
-    const filterSize = 16385n;
-    const numHashFunctions = 2;
-
-    // some test data with a known non-member element
-    const elements = Array(5).fill(0).map(() => ethers.hexlify(ethers.randomBytes(32)));
-    const bitArray = createBloomFilter(elements, filterSize, numHashFunctions);
+    // this random key for testing would be the masked commitment
+    const testKey = ethers.hexlify(ethers.randomBytes(32));
+    const keyBigInt = BigInt(testKey);
     
-    // make element that's not in the set
-    const nonMemberElement = ethers.hexlify(ethers.randomBytes(32));
-    const indices = calculateIndices(nonMemberElement, filterSize, numHashFunctions);
-
-    const input = {
-        indices: indices.map(i => i.toString()),  
-        bitArray: bitArray                        
+    // bits2Num expects an array of bits in reverse order (lsb first)
+    const value = bits2Num(bitArray2);
+    console.log("bitarray2: ", bitArray2);
+    console.log("turned to value: ", value);
+    
+    smt.add(keyBigInt, value);
+    
+    // generate inclusion proof
+    const proof = smt.createProof(keyBigInt);
+    const paddedSiblings = padSiblings(proof.siblings, SMT_DEPTH);
+    
+    return {
+        smt,
+        testKey: keyBigInt,
+        proof: { ...proof, siblings: paddedSiblings },
+        root: smt.root,
+        value
     };
+}
 
+async function generateCircuitInput(bitArray1, bitArray2, smtData) {
+    return {
+        bitArray: bitArray1,
+        bitArray2: bitArray2,
+        root: smtData.root.toString(),
+        siblings: smtData.proof.siblings.map(s => s.toString()),
+        key: smtData.testKey.toString(),
+        value: smtData.value.toString(),
+        auxKey: "0",
+        auxValue: "0",
+        auxIsEmpty: "0", 
+        isExclusion: "0" // changed to 0 for inclusion proof
+    };
+}
+
+async function main() {
     try {
-        console.log("Input being provided to circuit:", {
-            indices: input.indices,
-            bitArray: `[${input.bitArray.slice(0, 20).join(", ")}...]`
-        });
-        console.log("\nDetails:");
-        console.log("- Generated indices:", input.indices);
-        console.log("- Bit array length:", input.bitArray.length);
-        console.log("- All indices < filterSize:", indices.every(i => i < filterSize));
+        console.log("Creating bit arrays...");
+        const { bitArray1, bitArray2 } = createTestBitArrays(BLOOM_FILTER_SIZE);
         
-        console.log("\nGenerating witness...");
-        console.log("Using WASM file:", WASM_FILE);
-        console.log("Using zKey file:", ZKEY_FILE);
+        console.log("Setting up SMT...");
+        const smtData = await setupSMTree(bitArray2);
         
+        console.log("Generating circuit input...");
+        const input = await generateCircuitInput(bitArray1, bitArray2, smtData);
+
+        console.log("Generating proof...");
         const { proof, publicSignals } = await snarkjs.groth16.fullProve(
             input,
             WASM_FILE,
@@ -84,12 +85,19 @@ async function generateAndVerifyProof() {
         console.log("Verifying proof...");
         const vKey = JSON.parse(fs.readFileSync(VERIFICATION_KEY_FILE));
         const verified = await snarkjs.groth16.verify(vKey, publicSignals, proof);
-
+        
         console.log("Verification result:", verified);
         console.log("Public signals:", publicSignals);
-        
+
+        const argsSMT = {
+            proofs: [proof],
+            root: toFixedHex(smtData.root) 
+        };
+
+        console.log("SMT Arguments:", argsSMT);
+
         fs.writeFileSync(
-            "proof.json",
+            "../artifacts/circuits/proof.json",
             JSON.stringify({ proof, publicSignals }, null, 2)
         );
 
@@ -97,37 +105,21 @@ async function generateAndVerifyProof() {
             proof,
             publicSignals
         );
-        fs.writeFileSync("calldata.txt", solidityCallData);
+        fs.writeFileSync("../artifacts/circuits/calldata.txt", solidityCallData);
 
-        return {
-            success: verified,
-            proof,
-            publicSignals,
-            solidityCallData
-        };
-
+        return verified;
     } catch (error) {
-        console.error("Error generating/verifying proof:");
-        console.error("- Error message:", error.message);
-        console.error("- Error stack:", error.stack);
-        throw error;
+        console.error("Error:", error);
+        console.error("Stack:", error.stack);
+        return false;
     }
 }
 
-generateAndVerifyProof()
-    .then(result => {
-        console.log("\nProof generation and verification completed!");
-        console.log(`Verification status: ${result.success ? 'SUCCESS' : 'FAILED'}`);
-        console.log("\nProof details:");
-        console.log("- Protocol:", result.proof.protocol);
-        console.log("- Curve:", result.proof.curve);
-        console.log("\nPublic signals:", result.publicSignals);
-        console.log("\nFiles generated:");
-        console.log("- Proof and public signals: proof.json");
-        console.log("- Solidity calldata: calldata.txt");
-        process.exit(result.success ? 0 : 1);
+main()
+    .then((success) => {
+        process.exit(success ? 0 : 1);
     })
-    .catch(error => {
-        console.error("Failed:", error);
+    .catch((err) => {
+        console.error(err);
         process.exit(1);
     });

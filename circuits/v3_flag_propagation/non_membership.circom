@@ -1,4 +1,4 @@
 include "./bloom.circom";
 
 
-component main = BloomFilter(16384, 2, 32); //(2^14);
+component main = BloomFilter(16384, 2, 20); //(2^14);
