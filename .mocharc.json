@@ -1,0 +1,5 @@
+{
+    "extension": ["ts"],
+    "spec": ["circuits/**/*.ts"],
+    "require": "ts-node/register"
+  }

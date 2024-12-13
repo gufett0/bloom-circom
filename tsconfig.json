@@ -1,5 +1,5 @@
 {
-    "compilerOptions": {
+  "compilerOptions": {
       "target": "es2020",
       "module": "commonjs",
       "esModuleInterop": true,
@@ -7,5 +7,20 @@
       "strict": true,
       "skipLibCheck": true,
       "resolveJsonModule": true,
-    }
-  }
+      "outDir": "./dist",
+      "typeRoots": [
+          "./node_modules/@types",
+          "./circuits/types"
+      ],
+      "baseUrl": ".",
+      "paths": {
+          "*": ["circuits/types/*"]
+      }
+  },
+  "include": [
+      "circuits/**/*.ts",
+      "circuits/**/*.tsx",
+      "circuits/**/*.d.ts"
+  ],
+  "exclude": ["node_modules"]
+}
