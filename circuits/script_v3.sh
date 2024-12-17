@@ -7,9 +7,11 @@ if [ ! -f artifacts/circuits/ptau$POWERS_OF_TAU ]; then
 fi
 
 
+# npx circom -v -r artifacts/circuits/non_membership.r1cs -w artifacts/circuits/non_membership.wasm -s artifacts/circuits/non_membership.sym v3_flag_propagation/non_membership.circom
 
-npx circom -v -r artifacts/circuits/non_membership.r1cs -w artifacts/circuits/non_membership.wasm -s artifacts/circuits/non_membership.sym v3_flag_propagation/non_membership.circom
+circom v3_flag_propagation/non_membership.circom --r1cs --wasm --sym -o artifacts/circuits -l v3_flag_propagation -l node_modules/circomlib/circuits
 npx snarkjs groth16 setup artifacts/circuits/non_membership.r1cs artifacts/circuits/ptau$POWERS_OF_TAU artifacts/circuits/non_membership_0.zkey
+
 npx snarkjs zkey contribute artifacts/circuits/non_membership_0.zkey artifacts/circuits/non_membership_1.zkey
 npx snarkjs zkey beacon artifacts/circuits/non_membership_1.zkey artifacts/circuits/non_membership.zkey e586fccaf245c9a1d7e78294d4802018f3001149a71b8f10cd997ef8235aa372 10
 npx snarkjs zkey export solidityverifier artifacts/circuits/non_membership.zkey artifacts/circuits/VerifierMaskCommitment.sol

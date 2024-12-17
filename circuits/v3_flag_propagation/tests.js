@@ -1,12 +1,11 @@
-import { expect } from "chai";
-import path from "path";
-import { ethers } from "ethers";
-import { SMT } from "@zk-kit/smt";
-import { wasm } from "circom_tester";
-import { Circuit, Node, SMTData, CircuitInput } from "../types";
-import { poseidonHash } from "./utils";
+const { expect } = require("chai");
+const path = require("path");
+const { ethers } = require("ethers");
+const { SMT } = require("@zk-kit/smt");
+const { wasm } = require("circom_tester");
+const { createPoseidonHasher } = require("./utils");
 
-function convertNodeToBigInt(node: Node): bigint {
+function convertNodeToBigInt(node) {
     if (typeof node === 'bigint') {
         return node;
     }
@@ -16,8 +15,8 @@ function convertNodeToBigInt(node: Node): bigint {
     return BigInt(node.toString());
 }
 
-function convertSiblingsToArray(siblings: { [key: number]: Node }): bigint[] {
-    const result: bigint[] = [];
+function convertSiblingsToArray(siblings) {
+    const result = [];
     const keys = Object.keys(siblings).sort((a, b) => Number(a) - Number(b));
     
     for (const key of keys) {
@@ -28,11 +27,19 @@ function convertSiblingsToArray(siblings: { [key: number]: Node }): bigint[] {
     return result;
 }
 
-async function setupSMTree(bitArray: number[]): Promise<SMTData> {
-    const smt = new SMT(poseidonHash, true);
+async function setupSMTree(bitArray) {
+    const hasher = await createPoseidonHasher();
+    const smt = new SMT(hasher, true);
     const key = BigInt(ethers.hexlify(ethers.randomBytes(32)));
     
-    const value = BigInt(parseInt(bitArray.join(''), 2));
+    // avoid overflow? maybe not needed
+    const chunkSize = 50; 
+    let value = 0n;
+    for (let i = 0; i < bitArray.length; i += chunkSize) {
+        const chunk = bitArray.slice(i, i + chunkSize);
+        const chunkValue = BigInt(parseInt(chunk.join(''), 2));
+        value = (value << BigInt(chunk.length)) | chunkValue;
+    }
     
     await smt.add(key, value);
     const rawProof = smt.createProof(key);
@@ -50,9 +57,10 @@ async function setupSMTree(bitArray: number[]): Promise<SMTData> {
     };
 }
 
-function computeBloomIndices(key: bigint, filterSize: number): number[] {
-    const hash1 = poseidonHash([key]);
-    const hash2 = poseidonHash([hash1]);
+async function computeBloomIndices(key, filterSize) {
+    const hasher = await createPoseidonHasher();
+    const hash1 = hasher([key]);
+    const hash2 = hasher([hash1]);
     
     const index1 = Number(hash1 % BigInt(filterSize));
     const index2 = Number(hash2 % BigInt(filterSize));
@@ -60,32 +68,32 @@ function computeBloomIndices(key: bigint, filterSize: number): number[] {
     return [index1, index2];
 }
 
-function createBitArray(size: number, indices: number[]): number[] {
+function createBitArray(size, indices) {
     const arr = new Array(size).fill(0);
-    indices.forEach((idx: number) => arr[idx] = 1);
+    indices.forEach(idx => arr[idx] = 1);
     return arr;
 }
 
 describe("Bloom Filter Circuit Tests", function() {
     this.timeout(10000);
     
-    let circuit: Circuit;
-    const FILTER_SIZE = 16384;
+    let circuit;
+    const FILTER_SIZE = 256;
     
     before(async () => {
-        circuit = await wasm(path.join(__dirname, "circuits", "bloom.circom"));
+        circuit = await wasm(path.join(__dirname, "non_membership.circom"));
     });
 
     it("should correctly identify membership", async () => {
         const key = BigInt(ethers.hexlify(ethers.randomBytes(32)));
-        const indices = computeBloomIndices(key, FILTER_SIZE);
+        const indices = await computeBloomIndices(key, FILTER_SIZE);
         
         const chainstateBitArray = createBitArray(FILTER_SIZE, indices);
         const testBitArray = createBitArray(FILTER_SIZE, indices);
 
         const smtData = await setupSMTree(testBitArray);
 
-        const input: CircuitInput = {
+        const input = {
             bitArray: chainstateBitArray,
             bitArray2: testBitArray,
             root: smtData.root,
@@ -106,16 +114,16 @@ describe("Bloom Filter Circuit Tests", function() {
 
     it("should correctly identify non-membership", async () => {
         const chainstateKey = BigInt(ethers.hexlify(ethers.randomBytes(32)));
-        const chainstateIndices = computeBloomIndices(chainstateKey, FILTER_SIZE);
+        const chainstateIndices = await computeBloomIndices(chainstateKey, FILTER_SIZE);
         const chainstateBitArray = createBitArray(FILTER_SIZE, chainstateIndices);
 
         const testKey = BigInt(ethers.hexlify(ethers.randomBytes(32)));
-        const testIndices = computeBloomIndices(testKey, FILTER_SIZE);
+        const testIndices = await computeBloomIndices(testKey, FILTER_SIZE);
         const testBitArray = createBitArray(FILTER_SIZE, testIndices);
 
         const smtData = await setupSMTree(testBitArray);
 
-        const input: CircuitInput = {
+        const input = {
             bitArray: chainstateBitArray,
             bitArray2: testBitArray,
             root: smtData.root,
@@ -140,7 +148,7 @@ describe("Bloom Filter Circuit Tests", function() {
         
         for(let i = 0; i < numElements; i++) {
             const key = BigInt(ethers.hexlify(ethers.randomBytes(32)));
-            const indices = computeBloomIndices(key, FILTER_SIZE);
+            const indices = await computeBloomIndices(key, FILTER_SIZE);
             indices.forEach(idx => chainstateBitArray[idx] = 1);
         }
 
@@ -149,12 +157,12 @@ describe("Bloom Filter Circuit Tests", function() {
 
         for(let i = 0; i < numTests; i++) {
             const testKey = BigInt(ethers.hexlify(ethers.randomBytes(32)));
-            const testIndices = computeBloomIndices(testKey, FILTER_SIZE);
+            const testIndices = await computeBloomIndices(testKey, FILTER_SIZE);
             const testBitArray = createBitArray(FILTER_SIZE, testIndices);
 
             const smtData = await setupSMTree(testBitArray);
 
-            const input: CircuitInput = {
+            const input = {
                 bitArray: chainstateBitArray,
                 bitArray2: testBitArray,
                 root: smtData.root,
@@ -177,7 +185,7 @@ describe("Bloom Filter Circuit Tests", function() {
 
     it("should fail when bitArray contains invalid values", async () => {
         const testKey = BigInt(ethers.hexlify(ethers.randomBytes(32)));
-        const testIndices = computeBloomIndices(testKey, FILTER_SIZE);
+        const testIndices = await computeBloomIndices(testKey, FILTER_SIZE);
         const testBitArray = createBitArray(FILTER_SIZE, testIndices);
 
         const smtData = await setupSMTree(testBitArray);
@@ -185,7 +193,7 @@ describe("Bloom Filter Circuit Tests", function() {
         const invalidBitArray = new Array(FILTER_SIZE).fill(0);
         invalidBitArray[0] = 2;
 
-        const input: CircuitInput = {
+        const input = {
             bitArray: invalidBitArray,
             bitArray2: testBitArray,
             root: smtData.root,
@@ -201,26 +209,24 @@ describe("Bloom Filter Circuit Tests", function() {
         try {
             await circuit.calculateWitness(input);
             expect.fail("Should have thrown an error");
-        } catch (err: unknown) {
-            if (err instanceof Error) {
-                expect(err.toString()).to.include("Constraint doesn't match");
-            }
+        } catch (err) {
+            expect(err.toString()).to.include("Constraint doesn't match");
         }
     });
 
     it("should fail when using bitArray2 not in SMT", async () => {
         const chainstateKey = BigInt(ethers.hexlify(ethers.randomBytes(32)));
-        const chainstateIndices = computeBloomIndices(chainstateKey, FILTER_SIZE);
-        const chainstateBitArray = createBitArray(FILTER_SIZE, chainstateIndices);
+        const chainstateIndices = await computeBloomIndices(chainstateKey, FILTER_SIZE);
+        const chainstateBitArray = await createBitArray(FILTER_SIZE, chainstateIndices);
 
         const testKey = BigInt(ethers.hexlify(ethers.randomBytes(32)));
-        const testIndices = computeBloomIndices(testKey, FILTER_SIZE);
+        const testIndices = await computeBloomIndices(testKey, FILTER_SIZE);
         const testBitArray = createBitArray(FILTER_SIZE, testIndices);
 
         const differentBitArray = createBitArray(FILTER_SIZE, [0, 1]);
         const smtData = await setupSMTree(differentBitArray);
 
-        const input: CircuitInput = {
+        const input = {
             bitArray: chainstateBitArray,
             bitArray2: testBitArray,
             root: smtData.root,
@@ -236,10 +242,8 @@ describe("Bloom Filter Circuit Tests", function() {
         try {
             await circuit.calculateWitness(input);
             expect.fail("Should have thrown an error");
-        } catch (err: unknown) {
-            if (err instanceof Error) {
-                expect(err.toString()).to.include("Constraint doesn't match");
-            }
+        } catch (err) {
+            expect(err.toString()).to.include("Constraint doesn't match");
         }
     });
 });

@@ -2,12 +2,15 @@ const { SMT } = require("@zk-kit/smt");
 const { ethers } = require("ethers");
 const snarkjs = require("snarkjs");
 const fs = require("fs");
-const {toFixedHex, bits2Num, poseidonHash, padSiblings} = require("./utils")
+const path = require("path");
+const { createPoseidonHasher, bits2Num, toFixedHex, padSiblings } = require("./utils");
 
-const WASM_FILE = "../artifacts/circuits/non_membership.wasm";
-const ZKEY_FILE = "../artifacts/circuits/non_membership.zkey";
-const VERIFICATION_KEY_FILE = "../artifacts/circuits/verification_key.json";
-const BLOOM_FILTER_SIZE = 16384;
+const ARTIFACTS_DIR = "../artifacts/circuits";
+const WASM_FILE = path.join(ARTIFACTS_DIR, "non_membership_js/non_membership.wasm");
+const WITNESS_FILE = path.join(ARTIFACTS_DIR, "witness.wtns");
+const ZKEY_FILE = path.join(ARTIFACTS_DIR, "non_membership.zkey");
+const VERIFICATION_KEY_FILE = path.join(ARTIFACTS_DIR, "verification_key.json");
+const BLOOM_FILTER_SIZE = 256;
 const SMT_DEPTH = 20;
 
 
@@ -23,7 +26,8 @@ function createTestBitArrays(n) {
 
 async function setupSMTree(bitArray2) {
     
-    const smt = new SMT(poseidonHash, true);
+    const hasher = await createPoseidonHasher();
+    const smt = new SMT(hasher, true);
 
     // this random key for testing would be the masked commitment
     const testKey = ethers.hexlify(ethers.randomBytes(32));
@@ -64,6 +68,29 @@ async function generateCircuitInput(bitArray1, bitArray2, smtData) {
     };
 }
 
+async function generateProof(input, wasmFile, zkeyFile) {
+    try {
+        if (!fs.existsSync(wasmFile)) {
+            throw new Error(`WASM file not found at path: ${wasmFile}`);
+        }
+
+        const { proof, publicSignals } = await snarkjs.groth16.fullProve(
+            input,
+            wasmFile,
+            zkeyFile
+        );
+
+        return { proof, publicSignals };
+    } catch (error) {
+        console.error("Error in generateProof:");
+        console.error("Input:", JSON.stringify(input, null, 2));
+        console.error("WASM path:", wasmFile);
+        console.error("ZKEY path:", zkeyFile);
+        throw error;
+    }
+}
+
+
 async function main() {
     try {
         console.log("Creating bit arrays...");
@@ -75,12 +102,10 @@ async function main() {
         console.log("Generating circuit input...");
         const input = await generateCircuitInput(bitArray1, bitArray2, smtData);
 
+        console.log("Circuit input:", JSON.stringify(input, null, 2));
+        
         console.log("Generating proof...");
-        const { proof, publicSignals } = await snarkjs.groth16.fullProve(
-            input,
-            WASM_FILE,
-            ZKEY_FILE
-        );
+        const { proof, publicSignals } = await generateProof(input, WASM_FILE, ZKEY_FILE);
 
         console.log("Verifying proof...");
         const vKey = JSON.parse(fs.readFileSync(VERIFICATION_KEY_FILE));
@@ -94,10 +119,9 @@ async function main() {
             root: toFixedHex(smtData.root) 
         };
 
-        console.log("SMT Arguments:", argsSMT);
-
+        // Save proof and public signals
         fs.writeFileSync(
-            "../artifacts/circuits/proof.json",
+            path.join(ARTIFACTS_DIR, "proof.json"),
             JSON.stringify({ proof, publicSignals }, null, 2)
         );
 
@@ -105,7 +129,7 @@ async function main() {
             proof,
             publicSignals
         );
-        fs.writeFileSync("../artifacts/circuits/calldata.txt", solidityCallData);
+        fs.writeFileSync(path.join(ARTIFACTS_DIR, "calldata.txt"), solidityCallData);
 
         return verified;
     } catch (error) {

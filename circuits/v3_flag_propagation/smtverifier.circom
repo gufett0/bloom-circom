@@ -1,3 +1,5 @@
+pragma circom 2.1.9;
+
 include "../../node_modules/circomlib/circuits/poseidon.circom";
 include "../../node_modules/circomlib/circuits/switcher.circom";
 include "../../node_modules/circomlib/circuits/gates.circom";
@@ -167,18 +169,18 @@ template SMTVerifier(depth) {
     // The root of the sparse merkle tree
     signal input root;
     // The siblings for each depth
-    signal private input siblings[depth];
+    signal input siblings[depth];
 
-    signal private input key;
-    signal private input value;
+    signal input key;
+    signal input value;
 
-    signal private input auxKey;
-    signal private input auxValue;
+    signal input auxKey;
+    signal input auxValue;
     // 1 if the aux node is empty, 0 otherwise
-    signal private input auxIsEmpty;
+    signal input auxIsEmpty;
 
     // 1 if we are checking for exclusion, 0 if we are checking for inclusion
-    signal private input isExclusion;
+    signal input isExclusion;
 
     // Check that the auxIsEmpty is 0 if we are checking for inclusion
     component exclusiveCase = AND();

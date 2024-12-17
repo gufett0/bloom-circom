@@ -1,8 +1,22 @@
-const circomlib = require("circomlib");
+const { buildPoseidon } = require("circomlibjs");
 
+let poseidonInstance = null;
 
-function poseidonHash(items) {
-    return BigInt(circomlib.poseidon(items).toString());
+async function initializePoseidon() {
+    if (!poseidonInstance) {
+        poseidonInstance = await buildPoseidon();
+    }
+    return poseidonInstance;
+}
+
+// Create a synchronous version of poseidonHash that can be used with SMT
+async function createPoseidonHasher() {
+    const poseidon = await initializePoseidon();
+    
+    // Return a synchronous hash function that uses the initialized poseidon instance
+    return (inputs) => {
+        return BigInt(poseidon(inputs)[0].toString());
+    };
 }
 
 function padSiblings(siblings, depth) {
@@ -13,32 +27,27 @@ function padSiblings(siblings, depth) {
 
 function bits2Num(bits) {
     return bits.reduce((acc, bit, i) => {
-        // Use 2^i to match Bits2Num (little-endian)
         return acc + BigInt(bit) * (2n ** BigInt(i));
     }, 0n);
 }
 
 function toHex(number, length = 32) {
-    const str = number instanceof Buffer ? number.toString('hex') : BigInt(number).toString(16)
-    return '0x' + str.padStart(length * 2, '0')
- }
-
+    const str = number instanceof Buffer ? number.toString('hex') : BigInt(number).toString(16);
+    return '0x' + str.padStart(length * 2, '0');
+}
 
 function toFixedHex(number, length = 32) {
     let hexString;
-
     if (Buffer.isBuffer(number)) {
         hexString = number.toString('hex');
     } else {
         hexString = toHex(number).replace('0x', '');
     }
-
-    let result = '0x' + hexString.padStart(length * 2, '0');
-    return result;
+    return '0x' + hexString.padStart(length * 2, '0');
 }
 
 module.exports = {
-    poseidonHash,
+    createPoseidonHasher,
     padSiblings,
     bits2Num,
     toFixedHex

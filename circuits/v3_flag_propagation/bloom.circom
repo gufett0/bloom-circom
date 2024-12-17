@@ -1,3 +1,5 @@
+pragma circom 2.1.9;
+
 include "../../node_modules/circomlib/circuits/poseidon.circom";
 include "../../node_modules/circomlib/circuits/comparators.circom";
 include "../../node_modules/circomlib/circuits/bitify.circom";
@@ -25,21 +27,22 @@ template BitArrayIntersection(n) {
 
 
 template BloomFilter(n, k, depth) {
+
     
-    signal private input bitArray[n]; // this would be the bloom filter representing the utxo chainstate
-    signal private input bitArray2[n]; // this would be a bloom filter with just one element (derived from the flagged masked commitment)
+    signal input bitArray[n]; // this would be the bloom filter representing the utxo chainstate
+    signal input bitArray2[n]; // this would be a bloom filter with just one element (derived from the flagged masked commitment)
     // the bitarrays stay private to keep proof public signal small, and to shield anyone to see the chainstate of users utxo 
     
     signal output notInSet; // 1 if bitArray2 is NOT a member of bitArray
 
     // inputs for smt verification
     signal input root;
-    signal private input siblings[depth];
-    signal private input key; // maybe this would be the bytes32 element (masked commitment)
-    signal private input value; // this should correspond to bitArray2
-    signal private input auxKey;
-    signal private input auxValue;
-    signal private input auxIsEmpty;
+    signal input siblings[depth];
+    signal input key; // maybe this would be the bytes32 element (masked commitment)
+    signal input value; // this should correspond to bitArray2
+    signal input auxKey;
+    signal input auxValue;
+    signal input auxIsEmpty;
     // not private bc everyone should know what we're testing for
     signal input isExclusion; // this will be input as 0, bc we want to prove that the used bitarray was indeed taken from the masked smt
 
@@ -49,7 +52,7 @@ template BloomFilter(n, k, depth) {
         bits2Value.in[i] <== bitArray2[i];
         //bitArray2[i] * (bitArray2[i] - 1) === 0; // additionally enforce that the bits are binary (not needed?)
     }
-    log(bits2Value.out)
+    log(bits2Value.out);
     bits2Value.out === value;
 
     // first verify that bitArray2 belongs to the authorized smt 

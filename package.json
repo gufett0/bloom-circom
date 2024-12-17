@@ -3,7 +3,7 @@
     "version": "1.0.0",
     "main": "index.js",
     "scripts": {
-        "test": "ts-mocha circuits/v3_flag_propagation/tests.ts"
+        "test": "mocha circuits/v3_flag_propagation/tests.js"
     },
     "keywords": [],
     "author": "",
@@ -12,17 +12,19 @@
     "dependencies": {
         "@nomicfoundation/hardhat-toolbox": "^5.0.0",
         "@zk-kit/smt": "^1.0.2",
-        "circom": "^0.5.45",
-        "circomlib": "git+https://github.com/tornadocash/circomlib.git#d20d53411d1bef61f38c99a8b36d5d0cc4836aa1",
-        "circomlibjs": "^0.1.4",
+        "chai": "^4.2.0",
+        "circomlib": "^2.0.5",
+        "circomlibjs": "^0.1.7",
         "dotenv": "^16.4.5",
         "snarkjs": "git+https://github.com/tornadocash/snarkjs.git#f37f146948f3b28086493e71512006b030588fc2",
         "websnark": "git+https://github.com/tornadocash/websnark.git#4c0af6a8b65aabea3c09f377f63c44e7a58afa6d"
     },
     "devDependencies": {
+        "@types/chai": "^4.2.0",
         "@types/circomlibjs": "^0.1.6",
+        "@types/mocha": "^10.0.10",
         "circom_tester": "^0.0.20",
         "hardhat": "^2.22.6",
-        "ts-mocha": "^10.0.0"
+        "mocha": "^10.1.0"
     }
 }
