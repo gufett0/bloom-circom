@@ -9,11 +9,9 @@ async function initializePoseidon() {
     return poseidonInstance;
 }
 
-// Create a synchronous version of poseidonHash that can be used with SMT
 async function createPoseidonHasher() {
     const poseidon = await initializePoseidon();
     
-    // Return a synchronous hash function that uses the initialized poseidon instance
     return (inputs) => {
         return BigInt(poseidon(inputs)[0].toString());
     };
