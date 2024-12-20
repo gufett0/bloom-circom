@@ -13,11 +13,11 @@
         "@nomicfoundation/hardhat-toolbox": "^5.0.0",
         "@zk-kit/smt": "^1.0.2",
         "chai": "^4.2.0",
-        "circomlib": "^2.0.5",
-        "circomlibjs": "^0.1.7",
+        "circomlib": "^2.0.4",
+        "circomlibjs": "^0.1.4",
         "dotenv": "^16.4.5",
-        "snarkjs": "latest",
-        "websnark": "git+https://github.com/tornadocash/websnark.git#4c0af6a8b65aabea3c09f377f63c44e7a58afa6d"
+        "snarkjs": "latest"
+
     },
     "devDependencies": {
         "@types/chai": "^4.2.0",

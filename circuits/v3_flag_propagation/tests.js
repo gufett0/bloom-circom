@@ -98,7 +98,7 @@ describe("Bloom Filter Circuit Tests", function() {
             auxKey: 0,
             auxValue: 0,
             auxIsEmpty: 0,
-            isExclusion: 0
+            isExclusion: 0,
         };
 
         const witness = await circuit.calculateWitness(input);
