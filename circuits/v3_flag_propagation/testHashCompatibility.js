@@ -12,17 +12,27 @@ async function initializePoseidon() {
     return poseidonInstance;
 }
 
+// async function createPoseidonHasher() {
+//     const poseidon = await initializePoseidon();
+    
+//     return (inputs) => {
+
+//         const hash = poseidon(inputs);
+
+//         const buffer = Buffer.from(hash); 
+//         const hashBigInt = BigInt('0x' + buffer.toString('hex'));  
+
+//         return hashBigInt;
+//     };
+// }
+
+
 async function createPoseidonHasher() {
     const poseidon = await initializePoseidon();
     
     return (inputs) => {
-
         const hash = poseidon(inputs);
-
-        const buffer = Buffer.from(hash); 
-        const hashBigInt = BigInt('0x' + buffer.toString('hex'));  
-
-        return hashBigInt;
+        return BigInt(poseidon.F.toObject(hash));
     };
 }
 
