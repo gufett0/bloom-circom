@@ -13,7 +13,13 @@ async function createPoseidonHasher() {
     const poseidon = await initializePoseidon();
     
     return (inputs) => {
-        return BigInt(poseidon(inputs)[0].toString());
+
+        const hash = poseidon(inputs);
+
+        const buffer = Buffer.from(hash); 
+        const hashBigInt = BigInt('0x' + buffer.toString('hex'));  
+
+        return hashBigInt;
     };
 }
 

@@ -52,8 +52,11 @@ template BloomFilter(n, k, depth) {
         bits2Value.in[i] <== bitArray2[i];
         //bitArray2[i] * (bitArray2[i] - 1) === 0; // additionally enforce that the bits are binary (not needed?)
     }
-    log(bits2Value.out);
+
+    // log(bits2Value.out);
     bits2Value.out === value;
+
+    log(root);
 
     // first verify that bitArray2 belongs to the authorized smt 
     component smtVerifier = SMTVerifier(depth);

@@ -90,7 +90,6 @@ async function generateProof(input, wasmFile, zkeyFile) {
     }
 }
 
-
 async function main() {
     try {
         console.log("Creating bit arrays...");
