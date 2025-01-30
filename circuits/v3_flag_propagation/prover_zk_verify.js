@@ -10,9 +10,12 @@ const WASM_FILE = path.join(ARTIFACTS_DIR, "non_membership_js/non_membership.was
 const WITNESS_FILE = path.join(ARTIFACTS_DIR, "witness.wtns");
 const ZKEY_FILE = path.join(ARTIFACTS_DIR, "non_membership.zkey");
 const VERIFICATION_KEY_FILE = path.join(ARTIFACTS_DIR, "verification_key.json");
+
 const BLOOM_FILTER_SIZE = 256;
 const SMT_DEPTH = 20;
 
+const { zkVerifySession, ZkVerifyEvents } = require('zkverifyjs');
+const {CurveType, Library} = require('zkverifyjs');
 
 function createTestBitArrays(n) {
     const bitArray1 = new Array(n).fill(0);
@@ -106,12 +109,82 @@ async function main() {
         console.log("Generating proof...");
         const { proof, publicSignals } = await generateProof(input, WASM_FILE, ZKEY_FILE);
 
+        // Save proof and public signals, this is needed since we need convert them with the zkv cli tool
+        // todo: check if we can do this from the code
+        fs.writeFileSync(
+            path.join(ARTIFACTS_DIR, "proof.json"),
+            JSON.stringify(proof, null, 2)
+        );
+        fs.writeFileSync(
+            path.join(ARTIFACTS_DIR, "public_signals.json"),
+            JSON.stringify(publicSignals, null, 2)
+        );
+
         console.log("Verifying proof...");
         const vKey = JSON.parse(fs.readFileSync(VERIFICATION_KEY_FILE));
         const verified = await snarkjs.groth16.verify(vKey, publicSignals, proof);
         
         console.log("Verification result:", verified);
         console.log("Public signals:", publicSignals);
+
+        // --- integrating zk-verify ---
+
+        const session = await zkVerifySession.start()
+            .Testnet()
+            .withAccount('sibling dismiss pledge clown faculty notable coin rail buddy produce critic achieve');
+
+        const accountInfo = await session.accountInfo();
+        console.log("\nAccount info:");
+        console.log("Account address:", accountInfo.address);
+        console.log("Nonce:", accountInfo.nonce);
+        console.log("Free balance:", accountInfo.freeBalance);
+        console.log("Reserved balance:", accountInfo.reservedBalance);
+
+        // reading proof, public signals and verification key 
+        const proofZKV = JSON.parse(fs.readFileSync(path.join(ARTIFACTS_DIR, "proof.json")));
+        const publicSignalsZKV = JSON.parse(fs.readFileSync(path.join(ARTIFACTS_DIR, "public_signals.json")));
+        const vKeyZKV = JSON.parse(fs.readFileSync(VERIFICATION_KEY_FILE));
+
+        // verify the proof
+        console.log("\nVerifying proof using zk-verify...");
+        const {events, transactionResult} = await session.verify().groth16(Library.snarkjs, CurveType.bn128)
+            // .withRegisteredVk()                                
+            // .nonce(1)                                  
+            .waitForPublishedAttestation()                                
+            .execute({ proofData: { 
+                vk: vKeyZKV,
+                proof: proofZKV,
+                publicSignals: publicSignalsZKV }
+            })
+
+        // Listen for the 'includedInBlock' event
+        events.on(ZkVerifyEvents.IncludedInBlock, (eventData) => {
+            console.log('Transaction included in block:', eventData);
+        });
+
+        // Listen for the 'finalized' event
+        events.on(ZkVerifyEvents.Finalized, (eventData) => {
+            console.log('Transaction finalized:', eventData);
+        });
+
+        // Handle errors during the transaction process
+        events.on('error', (error) => {
+            console.error('An error occurred during the transaction:', error);
+        });
+
+        try {
+            // Await the final transaction result
+            const transactionInfo = await transactionResult;
+            console.log('Transaction completed successfully:', transactionInfo);
+
+            const proofDetails = await session.poe(transactionInfo.attestationEvent.id, transactionInfo.leafDigest);
+            console.log('Proof of existence:', proofDetails);
+
+        } catch (error) {
+            console.error('Transaction failed:', error);
+        } finally {
+            await session.close();
+        }
 
         const argsSMT = {
             proofs: [proof],
@@ -120,7 +193,7 @@ async function main() {
 
         // Save proof and public signals
         fs.writeFileSync(
-            path.join(ARTIFACTS_DIR, "proof.json"),
+            path.join(ARTIFACTS_DIR, "proof_and_public_signals.json"),
             JSON.stringify({ proof, publicSignals }, null, 2)
         );
 

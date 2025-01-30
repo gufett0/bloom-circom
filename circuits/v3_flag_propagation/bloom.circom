@@ -33,7 +33,7 @@ template BloomFilter(n, k, depth) {
     signal input bitArray2[n]; // this would be a bloom filter with just one element (derived from the flagged masked commitment)
     // the bitarrays stay private to keep proof public signal small, and to shield anyone to see the chainstate of users utxo 
     
-    signal output notInSet; // 1 if bitArray2 is NOT a member of bitArray
+    // signal output notInSet; // 1 if bitArray2 is NOT a member of bitArray
 
     // inputs for smt verification
     signal input root;
@@ -83,5 +83,6 @@ template BloomFilter(n, k, depth) {
     eq.in[0] <== intersection.sum;
     eq.in[1] <== k;
 
-    notInSet <== 1 - eq.out;
+    // notInSet <== 1 - eq.out;
+    eq.out === 0;
 }
